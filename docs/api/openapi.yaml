@@ -1,0 +1,686 @@
+"openapi": "3.0.3"
+"info":
+  "title": "Pelmeni — API бронирования переговорных"
+  "version": "0.2.0"
+  "description": "Черновой контракт по первой практике и architecture.md. Job соответствует брони. Пользователя определяет входной слой; способ аутентификации не фиксируется. Все ошибки используют Error. Время RFC 3339 с часовым поясом. Интервалы [start_at,end_at). Пересечения запрещены для PENDING_CONFIRMATION и CONFIRMED одной комнаты. При начале неподтверждённая бронь отменяется, при окончании подтверждённая завершается. Запрещённый переход — 409. Создание брони и связанных заданий атомарно. Повтор создания с тем же пользователем, Idempotency-Key и параметрами возвращает 200 с первоначальным результатом. Другие параметры с тем же ключом — 409 IDEMPOTENCY_KEY_REUSED; незавершённый повтор — 409 REQUEST_IN_PROGRESS. Успешный ключ сохраняется вместе с бронью. Порядок полей JSON не влияет на сравнение, даты сравниваются как моменты времени. Ошибка указывает поле в details.field; null означает ошибку операции."
+"servers":
+  -
+    "url": "http://localhost:8000"
+"paths":
+  "/rooms/available":
+    "get":
+      "operationId": "findAvailableRooms"
+      "summary": "Найти свободные комнаты"
+      "description": "start_at >= текущее время, end_at > start_at. Только AVAILABLE, без пересечений активных броней. Результат поиска не резервирует комнату."
+      "parameters":
+        -
+          "name": "start_at"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "date-time"
+            "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+          "description": ""
+        -
+          "name": "end_at"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "date-time"
+            "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+          "description": ""
+      "responses":
+        "200":
+          "description": "Свободные комнаты, сортировка по name и id."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/RoomList"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+  "/bookings":
+    "get":
+      "operationId": "listOwnBookings"
+      "summary": "Получить свои брони"
+      "description": "Только брони текущего сотрудника, сортировка по start_at. Фильтры периода from <= start_at < to, границы необязательны. При двух границах from < to. limit и offset задают страницу."
+      "parameters":
+        -
+          "name": "status"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "enum":
+              - "PENDING_CONFIRMATION"
+              - "CONFIRMED"
+              - "CANCELLED"
+              - "COMPLETED"
+          "description": ""
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "default": 20
+          "description": ""
+        -
+          "name": "offset"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 0
+            "default": 0
+          "description": ""
+        -
+          "name": "from"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "date-time"
+        -
+          "name": "to"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "date-time"
+      "responses":
+        "200":
+          "description": "Страница списка."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/BookingList"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+    "post":
+      "operationId": "createBooking"
+      "summary": "Создать бронь"
+      "description": "Начальный статус PENDING_CONFIRMATION. Владелец определяется входным слоем. Комната существует и доступна, начало не в прошлом, конец позже начала. Проверка пересечений и создание атомарны. Конфликт возвращает 409 с conflicting_booking_id."
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+          "description": "Ключ повторного создания, область действия — пользователь и операция."
+      "responses":
+        "200":
+          "description": "Повтор ключа с тем же телом. Возвращается сохранённый результат первого создания."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Booking"
+        "201":
+          "description": "Создана новая бронь."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Booking"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/BookingInput"
+  "/bookings/{id}":
+    "parameters":
+      -
+        "name": "id"
+        "in": "path"
+        "required": true
+        "schema":
+          "type": "string"
+          "format": "uuid"
+        "description": "Идентификатор объекта."
+    "patch":
+      "operationId": "rescheduleBooking"
+      "summary": "Перенести свою бронь"
+      "description": "Автор переносит бронь из PENDING_CONFIRMATION или CONFIRMED. Поля объединяются с текущими перед проверкой. Новый интервал не начинается в прошлом, конец позже начала. Проверяются доступность комнаты и пересечения, сама бронь исключается. Ошибка сохраняет исходную бронь, успех сохраняет статус."
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Бронь перенесена."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Booking"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/BookingPatch"
+    "delete":
+      "operationId": "cancelBooking"
+      "summary": "Отменить свою бронь"
+      "description": "Автор отменяет бронь с сохранением записи. PENDING_CONFIRMATION отменяется до подтверждения или автоматически при начале. CONFIRMED отменяется до начала. Повторная отмена — 409 ALREADY_CANCELLED, отмена COMPLETED — 409 INVALID_STATE."
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Бронь в статусе CANCELLED."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Booking"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+  "/bookings/{id}/confirm":
+    "parameters":
+      -
+        "name": "id"
+        "in": "path"
+        "required": true
+        "schema":
+          "type": "string"
+          "format": "uuid"
+        "description": "Идентификатор объекта."
+    "post":
+      "operationId": "confirmBooking"
+      "summary": "Подтвердить свою бронь"
+      "description": "Автор подтверждает PENDING_CONFIRMATION до начала. После начала — 409 CONFIRMATION_EXPIRED, из другого состояния — 409 INVALID_STATE."
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Бронь в статусе CONFIRMED."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Booking"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+  "/notifications/{id}/retry":
+    "parameters":
+      -
+        "name": "id"
+        "in": "path"
+        "required": true
+        "schema":
+          "type": "string"
+          "format": "uuid"
+        "description": "Идентификатор объекта."
+    "post":
+      "operationId": "retryNotification"
+      "summary": "Повторить неуспешную доставку вручную"
+      "description": "Ручной повтор администратором для сохранённого неуспешного уведомления. Получатель и текст берутся из БД. SmsNotifier вызывает провайдера с настроенным тайм-аутом. Недоступность или неправильный ответ — 502, превышение времени — 504. Автоматический повтор отсутствует по первой практике. Ошибка доставки не меняет статус брони."
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Провайдер принял сообщение."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/NotificationAttempt"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "502":
+          "$ref": "#/components/responses/Error502"
+        "503":
+          "$ref": "#/components/responses/Error503"
+        "504":
+          "$ref": "#/components/responses/Error504"
+  "/health":
+    "get":
+      "operationId": "health"
+      "summary": "Проверить приложение и БД"
+      "description": "При недоступности БД возвращает 503 в едином формате. Доступен без токена."
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Приложение и БД доступны."
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Health"
+        "500":
+          "$ref": "#/components/responses/Error500"
+        "503":
+          "$ref": "#/components/responses/Error503"
+      "security":
+        []
+"components":
+  "schemas":
+    "BookingInput":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "room_id"
+        - "start_at"
+        - "end_at"
+        - "topic"
+      "properties":
+        "room_id":
+          "type": "string"
+          "format": "uuid"
+        "start_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "end_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "topic":
+          "type": "string"
+    "BookingPatch":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        []
+      "properties":
+        "room_id":
+          "type": "string"
+          "format": "uuid"
+        "start_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "end_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+      "minProperties": 1
+      "description": "Хотя бы одно поле. Перед проверкой объединяется с текущей бронью."
+    "Booking":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "id"
+        - "owner_id"
+        - "room_id"
+        - "start_at"
+        - "end_at"
+        - "topic"
+        - "status"
+        - "created_at"
+        - "updated_at"
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "owner_id":
+          "type": "string"
+          "format": "uuid"
+        "room_id":
+          "type": "string"
+          "format": "uuid"
+        "start_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "end_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "topic":
+          "type": "string"
+        "status":
+          "type": "string"
+          "enum":
+            - "PENDING_CONFIRMATION"
+            - "CONFIRMED"
+            - "CANCELLED"
+            - "COMPLETED"
+        "created_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+        "updated_at":
+          "type": "string"
+          "format": "date-time"
+          "description": "RFC 3339 с обязательным часовым поясом. Сравнение по UTC."
+    "Room":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "id"
+        - "name"
+        - "capacity"
+        - "status"
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+        "capacity":
+          "type": "integer"
+          "minimum": 1
+        "status":
+          "type": "string"
+          "enum":
+            - "AVAILABLE"
+            - "UNAVAILABLE"
+    "BookingList":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "items"
+        - "limit"
+        - "offset"
+      "properties":
+        "items":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Booking"
+        "limit":
+          "type": "integer"
+        "offset":
+          "type": "integer"
+    "RoomList":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "items"
+      "properties":
+        "items":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Room"
+    "FieldError":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "field"
+        - "code"
+        - "message"
+      "properties":
+        "field":
+          "type": "string"
+          "nullable": true
+          "description": "Например body.start_at, path.id, header.Idempotency-Key. null для ошибки всего запроса."
+        "code":
+          "type": "string"
+        "message":
+          "type": "string"
+    "Error":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "error"
+      "properties":
+        "error":
+          "type": "object"
+          "additionalProperties": false
+          "required":
+            - "code"
+            - "message"
+            - "details"
+            - "correlation_id"
+          "properties":
+            "code":
+              "type": "string"
+            "message":
+              "type": "string"
+            "details":
+              "type": "array"
+              "items":
+                "$ref": "#/components/schemas/FieldError"
+            "correlation_id":
+              "type": "string"
+              "format": "uuid"
+            "conflicting_booking_id":
+              "type": "string"
+              "format": "uuid"
+    "Health":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "status"
+        - "database"
+      "properties":
+        "status":
+          "type": "string"
+          "enum":
+            - "ok"
+        "database":
+          "type": "string"
+          "enum":
+            - "up"
+    "NotificationAttempt":
+      "type": "object"
+      "additionalProperties": false
+      "required":
+        - "notification_id"
+        - "attempt_id"
+        - "status"
+        - "provider_message_id"
+      "properties":
+        "notification_id":
+          "type": "string"
+          "format": "uuid"
+        "attempt_id":
+          "type": "string"
+          "format": "uuid"
+        "status":
+          "type": "string"
+          "enum":
+            - "SENT"
+        "provider_message_id":
+          "type": "string"
+  "responses":
+    "Error400":
+      "description": "Некорректный JSON."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "BAD_REQUEST"
+              "message": "Некорректный JSON."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error401":
+      "description": "Пользователь не аутентифицирован."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "UNAUTHENTICATED"
+              "message": "Пользователь не аутентифицирован."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error403":
+      "description": "Недостаточно прав."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "FORBIDDEN"
+              "message": "Недостаточно прав."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error404":
+      "description": "Объект отсутствует либо недоступен этому пользователю."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "NOT_FOUND"
+              "message": "Объект отсутствует либо недоступен этому пользователю."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error409":
+      "description": "Конфликт интервала, состояния или ключа идемпотентности."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "CONFLICT"
+              "message": "Конфликт интервала, состояния или ключа идемпотентности."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error422":
+      "description": "Неверные параметры. details содержит код и путь каждого ошибочного поля."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "VALIDATION_ERROR"
+              "message": "Неверные параметры. details содержит код и путь каждого ошибочного поля."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error500":
+      "description": "Непредвиденная ошибка, подробности доступны по correlation_id в логах."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "INTERNAL_ERROR"
+              "message": "Непредвиденная ошибка, подробности доступны по correlation_id в логах."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error502":
+      "description": "Провайдер отклонил запрос или вернул некорректный ответ."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "NOTIFICATION_PROVIDER_ERROR"
+              "message": "Провайдер отклонил запрос или вернул некорректный ответ."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error503":
+      "description": "БД или необходимая инфраструктура недоступна."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "SERVICE_UNAVAILABLE"
+              "message": "БД или необходимая инфраструктура недоступна."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
+    "Error504":
+      "description": "Время ожидания SMS истекло, результат доставки может быть неизвестен."
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+          "example":
+            "error":
+              "code": "NOTIFICATION_TIMEOUT"
+              "message": "Время ожидания SMS истекло, результат доставки может быть неизвестен."
+              "details":
+                []
+              "correlation_id": "6bc9695f-37cc-4a32-9918-6288ef0a446f"
