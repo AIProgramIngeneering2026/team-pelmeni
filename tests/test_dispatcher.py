@@ -1,7 +1,7 @@
 import unittest
 from uuid import uuid4
 
-from pelmeni.dispatcher import Dispatcher, DispatchResult, ToolError
+from pelmeni.dispatcher import Dispatcher, ToolError
 from pelmeni.registry import Registry
 from pelmeni.tool import ToolContext, ToolResult
 
@@ -154,26 +154,42 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "IDEMPOTENCY_KEY_REUSED")
 
     def test_request_in_progress_while_first_running(self):
-        class SlowTool:
-            def __init__(self, dispatcher, context):
-                self.dispatcher = dispatcher
-                self.context = context
-                self.inner = None
+        class InProgressStore:
+            def __init__(self):
+                self.calls = 0
 
-            def execute(self, request, ctx):
-                # имитируем параллельный повтор с тем же ключом
-                if self.inner is None:
-                    self.inner = True
-                    with self.assertRaises(ToolError) as caught:
-                        self.dispatcher.dispatch(
-                            "create_booking", request, ctx,
+            def begin(self, *, scope, key, request_fingerprint):
+                self.calls += 1
+                record = type("Record", (), {})()
+                record.result_data = None
+                record.state = "NEW" if self.calls == 1 else "IN_PROGRESS"
+                return record
+
+            def complete(self, record, result_data):
+                record.state = "DONE"
+                record.result_data = result_data
+
+            def fail(self, record):
+                record.state = "FAILED"
+
+        store = InProgressStore()
+        dispatcher = Dispatcher(
+            registry=self.registry,
+            uow_factory=lambda: self.uow,
+            idempotency=store,
+            scheduler=self.scheduler,
+        )
+        tool = FakeTool(result=ToolResult(data={"ok": True}))
+        self.registry.register("create_booking", tool)
+
+        dispatcher.dispatch("create_booking", {"topic": "x"}, self.context,
                             idempotency_key="k")
-                    assert caught.exception.code == "REQUEST_IN_PROGRESS"
-                return ToolResult(data={"ok": True})
 
-        self.registry.register("create_booking", SlowTool(self.dispatcher, self.context))
-        self.dispatcher.dispatch(
-            "create_booking", {"topic": "x"}, self.context, idempotency_key="k")
+        with self.assertRaises(ToolError) as caught:
+            dispatcher.dispatch("create_booking", {"topic": "x"}, self.context,
+                                idempotency_key="k")
+        self.assertEqual(caught.exception.code, "REQUEST_IN_PROGRESS")
+        self.assertEqual(tool.calls, 1)
 
     def test_new_tool_added_without_touching_dispatcher(self):
         # Dispatcher не меняется — только регистрация.
